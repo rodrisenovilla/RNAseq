@@ -1,0 +1,201 @@
+---
+title: "In silico Liu et al"
+output: html_document
+---
+
+Comenzamos cargando los paquetes e introduciendo los datos crudos a partir del Series Matrix proporcionado por Liu et al. 
+
+```{r}
+#Script Procesamiento-----
+
+library(Matrix)
+library(ggplot2)
+
+#Descarga del fichero Series Matrix-------------------
+bulk<-read.table(file="cochlear_sgn_cnts.txt") 
+#Definimos los nombres de las columnas y las filas----------
+rownames(bulk)<-bulk[,1]
+colnames(bulk)<-bulk[1,]
+bulk_clean<-bulk[(-1),(-1)]
+bulk_clean
+```
+Necesitamos convertir los nombres Ensembl en simbolos convencionales para cada gen, para poder interpretarlo de manera mas intuitiva. Nos encontramos con la existencia de genes duplicados, que reetiquetamos como _1 y _2 por si son relevantes en nuestra seleccion de genes relacionados con la hormona tiroidea y el desarrollo coclear.
+
+```{r}
+
+#Descarga base de datos Ensembl Mus musculus----------
+#Seleccionar el ID / Gene Name-------- 
+
+library(dyplyr)
+library(biomaRt)
+
+ensembl <- useMart("ensembl")
+
+datasets <- listDatasets(ensembl)
+ensembl = useDataset("mmusculus_gene_ensembl",mart=ensembl)
+ensembl = useMart("ensembl",dataset="mmusculus_gene_ensembl")
+
+attributes = listAttributes(ensembl)
+
+prot_name<-getBM(attributes=c('uniprot_gn_symbol'), 
+                 filters = 'ensembl_gene_id_version', 
+                 values = bulk[,1], 
+                 mart = ensembl)
+gene_names<-getBM(attributes=c('ensembl_gene_id_version','external_gene_name'), 
+      filters = 'ensembl_gene_id_version', 
+      values = bulk[,1], 
+      mart = ensembl)
+prot_names<-as.data.frame(prot_name[1:10,])
+
+
+#There are 2 same ENSEMBL IDs for 1 gene (no puedo poner duplicados como rownames)---------
+gene_names_dupli<-transform(gene_names, 
+                 Column1.new = ifelse(duplicated(gene_names[,2]) | duplicated(gene_names[,2], fromLast=TRUE), 
+                                      paste(gene_names[,2], ave(gene_names[,2], gene_names[,2], FUN=seq_along), sep='_'), 
+                                      gene_names[,2]))
+
+
+```
+
+
+```{r}
+#Juntar ambos data.frames-----
+bulk_symbol_1<-bulk_clean[gene_names$ensembl_gene_id_version,]
+bulk_symbol_1<-cbind(gene_names$ensembl_gene_id_version,bulk_symbol_1)
+rownames(bulk_symbol_1)<-gene_names_dupli[,3]
+colnames(bulk_symbol_1)[1]<-"ensembl_gene_id_version"
+
+bulk_symbol_2<-bulk_clean[c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380"),]
+bulk_symbol_2<-cbind(bulk_symbol_2$Length, bulk_symbol_2)
+bulk_symbol_2[,1]<-c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380")
+rownames(bulk_symbol_2)<-c("Sox10", "Dio1", "Myo7a", "Mbp","Tubb3")
+colnames(bulk_symbol_2)[1]<-"ensembl_gene_id_version"
+bulk_symbol_2
+
+bulk_symbol<-rbind(bulk_symbol_1, bulk_symbol_2)
+bulk_symbol
+
+
+```
+
+El siguiente paso es reordenar las columnas para clasificarlas en orden del estadio y tipo celular correspondiente. Y posteriormente, seleccionar unicamente aquellos genes relevantes para nuestro estudio (HT_genes) segun literatura y la experiencia del propio grupo. 
+
+```{r}
+#Seleccionar genes relacionados con hormona tiroidea------------------(salen NA, que significan?)
+#Convertir en numerico --------
+bulk_matrix<-bulk_symbol[,c(1,2,6,7,8,12,13,14,18,19,20,9,10,11,15,16,17,3,4,5,21,22,23)]
+bulk_matrix[,2:ncol(bulk_matrix)] <- sapply(bulk_symbol[,2:ncol(bulk_symbol)], as.numeric)
+HT_genes<-read.csv("ListaAngel.csv", sep=";")
+colnames(HT_genes)<-c("Genes_R","Genes","Prot","Funcion")
+library(tools) 
+HT_genes[which(duplicated(HT_genes$Genes)),]
+rownames(HT_genes)<-tolower(HT_genes$Genes)
+HT_genes$Genes_R<-tolower(HT_genes$Genes)
+HT_genes$Genes_R<-toTitleCase(HT_genes$Genes_R)
+rownames(HT_genes)<-HT_genes$Genes_R
+HT_genes
+bulk_HT<-cbind(HT_genes$Prot, bulk_matrix[HT_genes$Genes_R,])
+bulk_HT
+```
+Una vez habiendo obtenido la tabla con los genes HT con su consiguiente expresion genica en diferentes tipos celulares y estadios, generaremos graficos para poder visualizarlo de manera mas clara y poder comparar e interpretar los genes. 
+
+```{r}
+#Codigo David para gráficas 
+library(rafalib)
+df<-bulk_HT[-(which(is.na(bulk_HT[,2]))),]
+df <- as.data.frame(t(df[,-c(1,2,3)])) ### quito ensembl
+df
+
+df$cell.type <- factor(  c(
+    rep("SGN_E15.5", 3),
+    rep("SGN_P1", 3),
+    rep("SGN_P8", 3),
+    rep("SGN_P14", 3),
+    rep("SGN_P30", 3),
+    rep("Glia_P8", 3),
+    rep("HC_P12", 3)
+  ),
+  levels=c("SGN_E15.5", "SGN_P1", "SGN_P8", "SGN_P14", "SGN_P30", "Glia_P8", "HC_P12"))
+
+df.sgn <- df[!df$cell.type %in% c("Glia_P8", "HC_P12"),]
+df.glia <- df[df$cell.type %in% c("Glia_P8"),]
+df.hc <- df[df$cell.type %in% c("HC_P12"),]
+for(j in 1:(ncol(df)-1)){
+  plot(type="n", as.numeric(df$cell.type), df[,j],  xlab="Cell type", ylab="Counts", main=names(df)[j], xaxt="n")
+  points(as.numeric(df.sgn$cell.type), df.sgn[,j], pch=20, col="blue")
+  points(as.numeric(df.glia$cell.type), df.glia[,j], pch=20, col="red")
+  points(as.numeric(df.hc$cell.type), df.hc[,j], pch=20, col="orange")
+  lines(unique(as.numeric(df.sgn$cell.type)), na.omit(sapply(split(df.sgn[,j], df.sgn$cell.type), mean, na.rm=T)), col="blue", lwd=2)
+  par(cex.axis=0.8)
+  axis(side=1, at=unique(as.numeric(df$cell.type)), unique(df$cell.type))
+}
+
+```
+Agrupamos por transportadores:
+```{r}
+#Transportadores
+mypar(2,2)
+for(j in 1:10){
+  plot(type="n", as.numeric(df$cell.type), df[,j],  xlab="Cell type", ylab="Counts", main=names(df)[j], xaxt="n")
+  points(as.numeric(df.sgn$cell.type), df.sgn[,j], pch=20, col="blue")
+  points(as.numeric(df.glia$cell.type), df.glia[,j], pch=20, col="red")
+  points(as.numeric(df.hc$cell.type), df.hc[,j], pch=20, col="orange")
+  lines(unique(as.numeric(df.sgn$cell.type)), na.omit(sapply(split(df.sgn[,j], df.sgn$cell.type), mean, na.rm=T)), col="blue", lwd=2)
+  par(cex.axis=0.8)
+  axis(side=1, at=unique(as.numeric(df$cell.type)), unique(df$cell.type))
+}
+```
+Agrupamos por receptores:
+```{r}
+#Receptores
+mypar(3,3)
+for(j in 10:15){
+  plot(type="n", as.numeric(df$cell.type), df[,j],  xlab="Cell type", ylab="Counts", main=names(df)[j], xaxt="n")
+  points(as.numeric(df.sgn$cell.type), df.sgn[,j], pch=20, col="blue")
+  points(as.numeric(df.glia$cell.type), df.glia[,j], pch=20, col="red")
+  points(as.numeric(df.hc$cell.type), df.hc[,j], pch=20, col="orange")
+  lines(unique(as.numeric(df.sgn$cell.type)), na.omit(sapply(split(df.sgn[,j], df.sgn$cell.type), mean, na.rm=T)), col="blue", lwd=2)
+  par(cex.axis=0.8)
+  axis(side=1, at=unique(as.numeric(df$cell.type)), unique(df$cell.type))
+}
+```
+
+
+
+```{r}
+#Heatmap=======
+library(ggplot2)
+heatmap(as.matrix(t(df[,1:(ncol(df)-1)])))
+
+
+```
+
+```{r}
+#ggplot
+library(ggplot2)
+type <- c(rep("SGN",5),
+    "Glia_P8",
+    "HC_P12")
+type
+df$stage <- factor(
+  c(
+    rep("SGN_E15.5", 3),
+    rep("SGN_P1", 3),
+    rep("SGN_P8", 3),
+    rep("SGN_P14", 3),
+    rep("SGN_P30", 3),
+    rep("Glia_P8", 3),
+    rep("HC_P12", 3)
+  ),
+  levels=c("SGN_E15.5", "SGN_P1", "SGN_P8", "SGN_P14", "SGN_P30", "Glia_P8", "HC_P12"))
+
+df2<-cbind(unique(as.numeric(df$cell.type)), sapply(split(df[,1], df$cell.type),mean), type)
+df2<-as.data.frame(df2)
+df2
+ggplot(df, aes(x=as.numeric(stage), y=df[,1]))+geom_point(aes(color=type))+ geom_line(data=df2, aes(x=df2[,1],y=df2[,2],color=type))
+ggplot(df2, aes(x=df2[,1],y=df2[,2]))+geom_line(color=type)
+ggplot(aes(df2[,1],df2[,2]))+geom_line()   
+df$type
+
+```
+
