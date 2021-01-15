@@ -1,3 +1,5 @@
+<meta http-equiv="refresh" content="0; url=https://github.com/rodrisenovilla/TFM/blob/main/index.nb.html" />
+
 ## Welcome to GitHub Pages
 
 You can use the [editor on GitHub](https://github.com/rodrisenovilla/TFM/edit/main/README.md) to maintain and preview the content for your website in Markdown files.
