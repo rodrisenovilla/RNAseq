@@ -26,7 +26,7 @@ Necesitamos convertir los nombres Ensembl en simbolos convencionales para cada g
 #Descarga base de datos Ensembl Mus musculus----------
 #Seleccionar el ID / Gene Name-------- 
 
-library(dyplyr)
+
 library(biomaRt)
 
 ensembl <- useMart("ensembl")
@@ -65,10 +65,10 @@ bulk_symbol_1<-cbind(gene_names$ensembl_gene_id_version,bulk_symbol_1)
 rownames(bulk_symbol_1)<-gene_names_dupli[,3]
 colnames(bulk_symbol_1)[1]<-"ensembl_gene_id_version"
 
-bulk_symbol_2<-bulk_clean[c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380"),]
+bulk_symbol_2<-bulk_clean[c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380","ENSMUSG00000022180"),]
 bulk_symbol_2<-cbind(bulk_symbol_2$Length, bulk_symbol_2)
-bulk_symbol_2[,1]<-c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380")
-rownames(bulk_symbol_2)<-c("Sox10", "Dio1", "Myo7a", "Mbp","Tubb3")
+bulk_symbol_2[,1]<-c("ENSMUSG00000033006", "ENSMUSG00000034785", "ENSMUSG00000030761", "ENSMUSG00000041607","ENSMUSG00000062380","ENSMUSG00000022180")
+rownames(bulk_symbol_2)<-c("Sox10", "Dio1", "Myo7a", "Mbp","Tubb3","Slc7a8")
 colnames(bulk_symbol_2)[1]<-"ensembl_gene_id_version"
 bulk_symbol_2
 
@@ -85,7 +85,8 @@ El siguiente paso es reordenar las columnas para clasificarlas en orden del esta
 #Convertir en numerico --------
 bulk_matrix<-bulk_symbol[,c(1,2,6,7,8,12,13,14,18,19,20,9,10,11,15,16,17,3,4,5,21,22,23)]
 bulk_matrix[,2:ncol(bulk_matrix)] <- sapply(bulk_symbol[,2:ncol(bulk_symbol)], as.numeric)
-HT_genes<-read.csv("ListaAngel.csv", sep=";")
+HT_genes<-read.csv("ListaAngelDef.csv", sep=";")
+
 colnames(HT_genes)<-c("Genes_R","Genes","Prot","Funcion")
 library(tools) 
 HT_genes[which(duplicated(HT_genes$Genes)),]
@@ -95,18 +96,19 @@ HT_genes$Genes_R<-toTitleCase(HT_genes$Genes_R)
 rownames(HT_genes)<-HT_genes$Genes_R
 HT_genes
 bulk_HT<-cbind(HT_genes$Prot, bulk_matrix[HT_genes$Genes_R,])
+bulk_matrix["Slc32a1",]
 bulk_HT
 ```
 Una vez habiendo obtenido la tabla con los genes HT con su consiguiente expresion genica en diferentes tipos celulares y estadios, generaremos graficos para poder visualizarlo de manera mas clara y poder comparar e interpretar los genes. 
 
 ```{r}
-#Codigo David para gráficas 
+#Codigo David para grÃ¡ficas 
 library(rafalib)
 df<-bulk_HT[-(which(is.na(bulk_HT[,2]))),]
+bulk_HT[colnames(df)[1],1]
 df <- as.data.frame(t(df[,-c(1,2,3)])) ### quito ensembl
-df
-
-df$cell.type <- factor(  c(
+df$'Experiments'<-rownames(df)
+df$Estadio <- factor(  c(
     rep("SGN_E15.5", 3),
     rep("SGN_P1", 3),
     rep("SGN_P8", 3),
@@ -116,34 +118,216 @@ df$cell.type <- factor(  c(
     rep("HC_P12", 3)
   ),
   levels=c("SGN_E15.5", "SGN_P1", "SGN_P8", "SGN_P14", "SGN_P30", "Glia_P8", "HC_P12"))
-
-df.sgn <- df[!df$cell.type %in% c("Glia_P8", "HC_P12"),]
-df.glia <- df[df$cell.type %in% c("Glia_P8"),]
-df.hc <- df[df$cell.type %in% c("HC_P12"),]
-for(j in 1:(ncol(df)-1)){
-  plot(type="n", as.numeric(df$cell.type), df[,j],  xlab="Cell type", ylab="Counts", main=names(df)[j], xaxt="n")
-  points(as.numeric(df.sgn$cell.type), df.sgn[,j], pch=20, col="blue")
-  points(as.numeric(df.glia$cell.type), df.glia[,j], pch=20, col="red")
-  points(as.numeric(df.hc$cell.type), df.hc[,j], pch=20, col="orange")
-  lines(unique(as.numeric(df.sgn$cell.type)), na.omit(sapply(split(df.sgn[,j], df.sgn$cell.type), mean, na.rm=T)), col="blue", lwd=2)
-  par(cex.axis=0.8)
-  axis(side=1, at=unique(as.numeric(df$cell.type)), unique(df$cell.type))
-}
-
+df$Tipo.celular<-factor(  c(
+    rep("SGN", 15),
+    rep("Glia", 3),
+    rep("HC", 3)
+  ),
+  levels=c("SGN", "Glia", "HC"))
+df
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+ggplot(df, aes(y=df[,1],x=Estadio, col=Tipo.celular))+geom_point(size=3,aes(shape=Estadio))+ stat_summary(data=df[1:15,], aes(y = df[1:15,1],group=1), fun.y=mean, colour="dark blue", geom="line",group=1, size=1)+scale_shape_manual(values = c(15,16,17,18,19,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("mRNA counts")+ggtitle(colnames(df)[1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5))+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue", "dark green", "red"))
 ```
 Agrupamos por transportadores:
 ```{r}
-#Transportadores
-mypar(2,2)
-for(j in 1:10){
-  plot(type="n", as.numeric(df$cell.type), df[,j],  xlab="Cell type", ylab="Counts", main=names(df)[j], xaxt="n")
-  points(as.numeric(df.sgn$cell.type), df.sgn[,j], pch=20, col="blue")
-  points(as.numeric(df.glia$cell.type), df.glia[,j], pch=20, col="red")
-  points(as.numeric(df.hc$cell.type), df.hc[,j], pch=20, col="orange")
-  lines(unique(as.numeric(df.sgn$cell.type)), na.omit(sapply(split(df.sgn[,j], df.sgn$cell.type), mean, na.rm=T)), col="blue", lwd=2)
-  par(cex.axis=0.8)
-  axis(side=1, at=unique(as.numeric(df$cell.type)), unique(df$cell.type))
+
+library(ggplot2)
+library(ggpubr)
+
+for(j in 1){
+p1<-(ggplot(df, aes(y=df[,j],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j], subtitle =bulk_HT[colnames(df)[j],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), legend.title = element_text(face="bold"), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p2<-(ggplot(df, aes(y=df[,j+1],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+scale_y_continuous(name="Número ARNm", limits=c(0,1250), breaks = c(250, 750, 1250))+ggtitle(colnames(df)[j+1], subtitle =bulk_HT[colnames(df)[j+1],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p3<-(ggplot(df, aes(y=df[,j+2],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+2], subtitle =bulk_HT[colnames(df)[j+2],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p4<-(ggplot(df, aes(y=df[,j+3],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+3], subtitle =bulk_HT[colnames(df)[j+3],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p5<-(ggplot(df, aes(y=df[,j+4],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+4], subtitle =bulk_HT[colnames(df)[j+4],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p6<-(ggplot(df, aes(y=df[,j+5],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+5], subtitle =bulk_HT[colnames(df)[j+5],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
 }
+
+figure <- ggarrange(p1, p2, p3, p4, p5, p6,
+                    labels = c("A", "B", "C", "D", "E", "F"), common.legend = TRUE, legend = "bottom",
+                    ncol = 2, nrow = 3)
+figure<-annotate_figure(figure,
+               top = text_grob("Transportadores de Hormonas Tiroideas", color = "black", face = "bold", size = 14))
+figure
+ggexport(figure,fig.height=2.5, fig.width= 2, filename = "Transportadores.pdf")
+
+```
+
+Agrupamos por efectores:
+```{r}
+
+library(ggplot2)
+library(ggpubr)
+
+for(j in 7){
+p1<-(ggplot(df, aes(y=df[,j],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j], subtitle =bulk_HT[colnames(df)[j],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), legend.title = element_text(face="bold"), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p2<-(ggplot(df, aes(y=df[,j+1],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número de ARNm")+ggtitle(colnames(df)[j+1], subtitle =bulk_HT[colnames(df)[j+1],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p3<-(ggplot(df, aes(y=df[,j+2],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+2], subtitle =bulk_HT[colnames(df)[j+2],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p4<-(ggplot(df, aes(y=df[,j+3],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+3], subtitle =bulk_HT[colnames(df)[j+3],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p5<-(ggplot(df, aes(y=df[,j+4],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+4], subtitle =bulk_HT[colnames(df)[j+4],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p6<-(ggplot(df, aes(y=df[,j+5],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+5], subtitle =bulk_HT[colnames(df)[j+5],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+}
+
+figure <- ggarrange(p1, p2, p3, p4, p5, p6,
+                    labels = c("A", "B", "C", "D", "E", "F"), common.legend = TRUE, legend = "bottom",
+                    ncol = 2, nrow = 3)
+figure<-annotate_figure(figure,
+               top = text_grob("Proteínas efectoras y metabolizadoras de Hormonas Tiroideas", color = "black", face = "bold", size = 14))
+figure
+ggexport(figure,fig.height=2.5, fig.width= 2, filename = "Proteinas.pdf")
+
+```
+
+Agrupamos por neuronas:
+```{r}
+
+library(ggplot2)
+library(ggpubr)
+
+for(j in 13){
+p1<-(ggplot(df, aes(y=df[,j],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j], subtitle =bulk_HT[colnames(df)[j],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), legend.title = element_text(face="bold"), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p2<-(ggplot(df, aes(y=df[,j+1],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número de ARNm")+ggtitle(colnames(df)[j+1], subtitle =bulk_HT[colnames(df)[j+1],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p3<-(ggplot(df, aes(y=df[,j+2],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+2], subtitle =bulk_HT[colnames(df)[j+2],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p4<-(ggplot(df, aes(y=df[,j+3],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+3], subtitle =bulk_HT[colnames(df)[j+3],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p5<-(ggplot(df, aes(y=df[,j+4],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+4], subtitle =bulk_HT[colnames(df)[j+4],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p6<-(ggplot(df, aes(y=df[,j+5],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+5], subtitle =bulk_HT[colnames(df)[j+5],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+}
+
+figure <- ggarrange(p1, p2, p3, p4, p5, p6,
+                    labels = c("A", "B", "C", "D", "E", "F"), common.legend = TRUE, legend = "bottom",
+                    ncol = 2, nrow = 3)
+figure<-annotate_figure(figure,
+               top = text_grob("Marcadores de diferenciación de SGNs", color = "black", face = "bold", size = 14))
+figure
+ggexport(figure,fig.height=2.5, fig.width= 2, filename = "SGN.pdf")
+
+```
+
+Agrupamos por neurotrofinas:
+```{r}
+
+library(ggplot2)
+library(ggpubr)
+j=1
+for(j in 19){
+p1<-(ggplot(df, aes(y=df[,j],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j], subtitle =bulk_HT[colnames(df)[j],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), legend.title = element_text(face="bold"), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p2<-(ggplot(df, aes(y=df[,j+1],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número de ARNm")+ggtitle(colnames(df)[j+1], subtitle =bulk_HT[colnames(df)[j+1],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p3<-(ggplot(df, aes(y=df[,j+2],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+2], subtitle =bulk_HT[colnames(df)[j+2],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p4<-(ggplot(df, aes(y=df[,j+3],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+3], subtitle =bulk_HT[colnames(df)[j+3],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5), axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p5<-(ggplot(df, aes(y=df[,j+4],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+4], subtitle =bulk_HT[colnames(df)[j+4],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+
+p6<-(ggplot(df, aes(y=df[,j+5],x=Estadio, col=Tipo.celular))+geom_boxplot()+geom_point(size=4,aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("Número ARNm")+ggtitle(colnames(df)[j+5], subtitle =bulk_HT[colnames(df)[j+5],1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5, face="italic"), plot.subtitle = element_text(hjust = 0.5),axis.title.x=element_blank())+ guides(shape = FALSE)+scale_colour_manual(values=c("dark blue","dark green", "red")))
+}
+
+figure <- ggarrange(p1, p2, p3, p4, p5, p6,
+                    labels = c("A", "B", "C", "D", "E", "F"), common.legend = TRUE, legend = "bottom",
+                    ncol = 2, nrow = 3)
+figure<-annotate_figure(figure,
+               top = text_grob("Migración, guía axonal y mielinización", color = "black", face = "bold", size = 14))
+figure
+ggexport(figure,fig.height=2.5, fig.width= 2, filename = "guia.pdf")
+
+```
+
+
+```{r}
+ggplot(df, aes(y=df[,1],x=Estadio))+stat_summary(geom = "bar", fun.y = "mean", aes(fill=Tipo.celular))+geom_point(size=3, aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("mRNA counts")+ggtitle(colnames(df)[1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5))+ guides(shape = FALSE)+stat_summary(geom="errorbar",width=0.5)+scale_colour_manual(values=c("dark blue","dark green", "red"))
+```
+
+```{r}
+ggplot(df[1:15,], aes(y=df[1:15,1],x=Estadio))+stat_summary(geom = "bar", fun.y = "mean", fill="dark blue")+geom_point(size=3,col="black", aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30", "P8", "P12"))+ylab("mRNA counts")+ggtitle(colnames(df)[1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5))+ guides(col = FALSE)+stat_summary(geom="errorbar", width=0.5)
+```
+```{r}
+ggplot(df[c(7,8,9,16:nrow(df)),], aes(y=df[c(7,8,9,16:nrow(df)),1],x=Estadio))+stat_summary(geom = "bar", fun.y = "mean", aes(fill=Tipo.celular))+geom_point(size=3, aes(shape=Estadio))+scale_shape_manual(values = c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("P8", "P8", "P12"))+ylab("mRNA counts")+ggtitle(colnames(df)[1])+ labs(col="Tipo celular")+theme(plot.title = element_text(hjust = 0.5))+ guides(shape = FALSE)+stat_summary(geom="errorbar",width=0.5)+scale_fill_manual(values=c("dark blue","dark green", "red"))
+```
+```{r}
+data_tipocelular <-as.data.frame(df[c(7,8,9,16:nrow(df)),])
+data_tipocelular
+anova_tipocelular<-aov(data=data, Slc16a2~Tipo.celular)
+summary(anova_tipocelular)
+library(multcomp)
+post_test_tipocelular <- glht(anova_tipocelular,
+  linfct = mcp(Tipo.celular = "Tukey")
+)
+summary(post_test_tipocelular)
+plot(post_test_tipocelular, las = 1)
+
+#Introducir no expresiÃ³n?
+
+
+```
+```{r}
+install.packages("lsmeans")
+library(lsmeans)
+data_sng<-as.data.frame(df[c(1:15),])
+data_sng
+results_sng<-matrix(nrow=4, ncol = ncol(data_sng))
+for(i in 1:ncol(df))
+m[1,colnames(dbko)[i]]<-round(shapiro.test(dbko[,i])$p.value,2)
+lm_sng<-lm(aov(data=data_sng, data_sng[,1]~Estadio))
+summary(lm_sng)
+toP<-lsmeans(lm_sng, pairwise ~ Estadio, glhargs=list())
+toP$contrasts[1,1]
+
+anova_sng<-aov(data=data_sng, data_sng[,1]~Estadio)
+summary(anova_sng)[[1]][["Pr(>F)"]]
+library(multcomp)
+post_test_sng <- glht(anova_sng,
+  linfct = mcp(Estadio = "Tukey")
+)
+glht(anova_sng,
+  linfct = mcp(Estadio = "Tukey")
+)
+summary(post_test_sng)
+plot(post_test_sng, las = 1)
+
+#Introducir no expresiÃ³n?
+
+
+```
+```{r}
+ #ggpubr
+#Transportadores
+library(tidyr)
+?tidyr::pivot_longer()
+dfr<-df[which(df$Tipo.celular=="SGN"),] %>% pivot_longer(cols=1:6, names_to = "Genes", values_to = "Counts")
+figure<-dfr[which(dfr$Tipo.celular=="SGN"),] %>% ggplot(aes(x=Estadio, y=Counts, col=Genes))+geom_point(size=2,aes(shape=Estadio),position = position_jitterdodge())+geom_boxplot(size=1)+scale_shape_manual(values =c(15,16,17,18,4,15,16))+scale_x_discrete(labels=c("E15,5", "P1", "P8", "P14", "P30"))+ylab("NÃºmero mRNA")+ggtitle("Transportadores de Hormonas Tiroideas", subtitle = "Neuronas del ganglio espiral (SGNs)") + labs(col="Gen")+theme(plot.title = element_text(hjust = 0.5),plot.subtitle = element_text(hjust = 0.5))+ guides(shape = FALSE)
+figure
+ggexport(figure,height=800, width= 1200, filename = "multi.jpg")
+
+```
+```{r}
+ ######################ggpubr
+#Transportadores
+library(tidyr)
+?tidyr::pivot_longer()
+dfr<-df[which(df$Tipo.celular!="SGN"),] %>% pivot_longer(cols=1:6, names_to = "Genes", values_to = "Counts")
+figure<-dfr %>% ggplot(aes(x=Estadio, y=Counts, col=Genes))+geom_point(size=2,aes(shape=Estadio),position = position_pointsdodge())+geom_boxplot(size=1)+xlab("Estadio-Tipo celular")+ylab("NÃºmero mRNA")+ggtitle("Transportadores de Hormonas Tiroideas", subtitle = "             Glia (Sox10+)                   Celulas ciliadas (HCs)") + scale_x_discrete(labels=c("P8", "P12"))+labs(col="Gen")+theme(plot.title = element_text(hjust = 0.5),plot.subtitle = element_text(hjust = 0.5))+ guides(shape = FALSE)
+figure
+ggexport(figure,height=800, width= 1200, filename = "multi.jpg")
+
 ```
 Agrupamos por receptores:
 ```{r}
