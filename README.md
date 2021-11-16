@@ -8,4 +8,4 @@ This branch is compilation of the code (most R) used for different RNAseq analys
 
 If you have any doubt of what we do, check out our page [phylobrain](http://phylobrain.com/) or our social media @PhyloBrain or @RodriSenovilla in Twitter. 
 
-![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)(http://phylobrain.com/)
+[![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)](http://phylobrain.com/)
