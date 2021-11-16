@@ -2,14 +2,10 @@
 
 # **RNAseq Analysis** 
 
-This branch is compilation of the code used for different RNAseq analysis, most of it originally learned at HarvardX with Michael Love (DESeq2 developer).
-
-### Markdown
-
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+This branch is compilation of the code (most R) used for different RNAseq analysis, most of it originally learned at HarvardX with Michael Love (DESeq2 developer).
 
 ### Support or Contact
 
 If you have any doubt of what we do, check out our page [phylobrain](http://phylobrain.com/) or our social media @PhyloBrain or @RodriSenovilla in Twitter. 
 
-![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)
+![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)(http://phylobrain.com/)
