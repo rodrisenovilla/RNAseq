@@ -1,0 +1,534 @@
+---
+layout: page
+title: RNA-seq gene-level analysis
+---
+
+```{r options, echo=FALSE}
+library(knitr)
+library(Rsamtools)
+library(GenomicAlignments)
+library(GenomicFeatures)
+library(rafalib)
+library(DESeq2)
+library(vsn)
+library(ggplot2)
+library(DEXSeq)
+BiocManager::install("genego")
+library(cummeRbund)
+```
+
+## Counting reads in genes
+
+```{r messages=FALSE}
+dir <- file.path("C:/Users/rodri/Documents/EA_RNAseq/bam_files/")
+csv.file <- file.path("sample_table.csv")
+sample.table <- read.csv(csv.file, row.names=1, sep=";")
+sample.table[,1]<-as.character(sample.table[,1])
+bam.files <- file.path(dir, list.files("C:/Users/rodri/Documents/EA_RNAseq/bam_files"))
+gtf.file <- file.path("C:/Users/rodri/Documents/EA_RNAseq/Mus_musculus.GRCm39.104.gtf")
+```
+
+Next we create an *Rsamtools* variable which wraps our BAM files, and create a transcript database from the GTF file. We can ignore the warning about `matchCircularity`. Finally, we make a *GRangesList* which contains the exons for each gene.
+
+```
+bam.list <- BamFileList(bam.files)
+txdb <- makeTxDbFromGFF(gtf.file, format="gtf")
+exons.by.gene <- exonsBy(txdb, by="gene")
+```
+
+The following code chunk creates a *SummarizeExperiment* containing the counts for the reads in each BAM file (columns) for each gene in `exons.by.gene` (the rows). We add the `sample.table` as column data. Remember, we know the order is correct, because the `bam.list` was constructed from a column of `sample.table`. This is alredy done, so charge the saved 
+'SummarizedExperiment'. 
+
+```{r}
+se <- summarizeOverlaps(exons.by.gene, bam.list,
+                        mode="Union",
+                        singleEnd=FALSE,
+                        ignore.strand=TRUE,
+                        fragments=TRUE)
+colData(se) <- DataFrame(sample.table)
+```
+
+Upload the *SummarizedExperiment*
+
+```{r, echo=FALSE}
+readImage("./EA_se.RData")
+```
+
+
+## Visualizing sample-sample distances
+
+#Experiment Information
+
+Metadata, the day and genotype of each sample. Conversion into factor: 
+```{r}
+colData(se)
+se$Day<-factor(se$Day)
+se$Genotype<-factor(se$Genotype)
+colData(se)
+```
+
+Exon names and coordinates in genome:
+```{r}
+rowRanges(se)
+```
+
+The counts matrix is stored in `assay` of a *SummarizeGenotypeperiment*.
+
+```{r}
+head(assay(se))
+```
+
+### Getting alternate annotations
+
+We can then check the annotation of these highly significant genes:
+
+```{r}
+library(org.Mm.eg.db)
+keytypes(org.Mm.eg.db)
+
+anno <- select(org.Mm.eg.db, keys=rownames(dds),
+               columns=c("SYMBOL","GENENAME"), 
+               keytype="ENSEMBL")
+ind<-is.na(anno$SYMBOL)
+anno$SYMBOL[ind]<-anno$ENSEMBL
+rowData(se)<-anno[match(rownames(se), anno$ENSEMBL),]
+```
+
+This code chunk is not necessary, but helps to make nicer plots below with large axis labels (`mypar(1,2)` can be substituted with `par(mfrow=c(1,2))` below).
+
+```{r}
+mypar()
+```
+
+Note that, on the un-transformed scale, the high count genes have high variance. That is, in the following scatter plot, the points start out in a tight cone and then fan out toward the top right. This is a general property of counts generated from sampling processes, that the variance typically increases with the expected value. We will explore different scaling and transformations options below.
+
+### Creating a DESeqDataSet object
+
+We will use the `DESeq2` package to normalize the sample for sequencing depth. 
+
+We need to specify an experimental *design* here, for later use in differential analysis. The design starts with the tilde symbol `~`(log2 scale), following the tilde, the variables are columns of the `colData`, and the `+` indicates that for differential expression analysis we want to compare levels of `Genotype` while controlling for the `Day` differences.
+
+```{r}
+dds <- DESeqDataSet(se, design= ~ Day + Genotype)
+```
+```{r}
+dds
+design(dds)
+dds@colData
+```
+### Normalization for sequencing depth
+
+The following estimates size factors to account for differences in sequencing depth, and is only necessary to make the `log.norm.counts` object below.
+
+```{r}
+dds <- estimateSizeFactors(dds)
+sizeFactors(dds)
+colSums(counts(dds))
+plot(sizeFactors(dds), colSums(counts(dds)))
+abline(lm(colSums(counts(dds)) ~ sizeFactors(dds) + 0))
+```
+
+
+Make a matrix of log normalized counts (plus a pseudocount):
+
+```{r}
+log.norm.counts <- log2(counts(dds, normalized=TRUE) + 1)
+```
+
+Another way to make this matrix, and keep the sample and gene information is to use the function `normTransform`. The same matrix as above is stored in `assay(log.norm)`.
+
+
+#IMPORTANT STEP
+
+```{r}
+log.norm <- normTransform(dds)
+```
+
+Check how it changes the data when you normalize:
+
+```{r}
+rs <- rowSums(counts(dds))
+mypar(1,2)
+boxplot(log2(counts(dds)[rs > 0,] + 1)) # not normalized
+boxplot(assay(rld)[rs > 0,]) # normalized
+```
+
+
+### Stabilizing count variance
+
+It uses the variance model for count data to shrink together the log-transformed counts for genes with very low counts. For genes with medium and high counts, the `rlog` is very close to `log2`. 
+
+```{r}
+mypar(1,2)
+rld <- rlog(dds)
+plot(log2(counts(dds)+ 1)[,1:2], cex=.1)
+plot(assay(rld)[,1:2], cex=.1)
+```
+
+We can examine the standard deviation of rows over the mean for the *log plus pseudocount* and the *rlog*. Note that the genes with high variance for the *log* come from the genes with lowest mean. If these genes were included in a distance calculation, the high variance at the low count range might overwhelm the signal at the higher count range.
+
+```{r}
+mypar(1,2)
+meanSdPlot(log2(counts(dds) + 1), ranks=FALSE) 
+meanSdPlot(assay(rld), ranks=FALSE)
+```
+
+The principal components (PCA) plot is a useful diagnostic for examining relationships between samples:
+
+Using the rlog:
+
+```{r}
+plotPCA(rld, intgroup="Genotype")
+```
+
+We can make this plot even nicer using custom code from the *ggplot2* library:
+
+```{r}
+(data <- plotPCA(rld, intgroup=c("Genotype","Day"), returnData=TRUE))
+(percentVar <- 100*round(attr(data, "percentVar"),2))
+```
+
+```{r}
+makeLab <- function(x,pc) paste0("PC",pc,": ",x,"% variance")
+ggplot(data, aes(PC1,PC2,col=Genotype,shape=Day)) + geom_point() +
+  xlab(makeLab(percentVar[1],1)) + ylab(makeLab(percentVar[2],2))
+```
+
+In addition, we can plot a hierarchical clustering based on Euclidean distance matrix:
+
+```{r fig.width=10, fig.height=5}
+mypar(1,2)
+plot(hclust(dist(t(assay(rld)))), labels=colData(rld)$Genotype)
+plot(hclust(dist(t(assay(rld)))), labels=colData(rld)$Day)
+```
+
+## Differential gene expression
+
+
+### Experimental design and running DESeq2
+
+```{r}
+design(dds) <- ~ Day  + Genotype
+design(dds)
+```
+
+The last variable in the design is used by default for building results tables (although arguments to `results` can be used to customize the results table), and we make sure the "WT" or "AD" level is the first level, such that log fold changes will be AD over WT, and not WT over AD.
+
+
+```{r}
+levels(dds$Genotype)
+dds$Genotype <- relevel(dds$Genotype, "WT")
+levels(dds$Genotype)
+```
+
+The following line runs the *DESeq2* model. After this step, we can build a results table, which by default will compare the levels in the last variable in the design, so the *Genotype* treatment in our case:
+
+```{r}
+dds <- DESeq(dds)
+res <- results(dds)
+```
+
+### Examining results tables
+
+```{r}
+head(res)
+table(res$padj < 0.1)
+summary(res)
+```
+
+A summary of the results can be generated:
+
+
+For testing at a different threshold, we provide the `alpha` to *results*, so that the mean filtering is optimal for our new FDR threshold.
+
+```{r}
+res2 <- results(dds, alpha=0.05)
+table(res2$padj < 0.05)
+summary(res2)
+```
+
+### Visualizing results
+
+The MA-plot provides a global view of the differential genes, with the log2 fold change on the y-axis over the mean of normalized counts:
+
+```{r}
+plotMA(res2, ylim=c(-9,8))
+```
+
+We can also test against a different null hypothesis. For example, to test for genes which have fold change more than doubling or less than halving:
+
+```{r}
+res.thr <- results(dds, lfcThreshold=1, alpha = 0.05)
+reslog_csv<-res.thr[which(res.thr$padj<0.05),]
+reslog_csv <-cbind(rowData(dds)[rownames(reslog_csv),"SYMBOL"], reslog_csv)
+write.csv(reslog_csv, "reslog.csv")
+topgenes <- rownames(res.thr[which(res.thr$padj<0.05),])
+mat <- assay(rld)[topgenes,]
+mat <- mat - rowMeans(mat)
+rownames(mat)<-rowData(dds)[rownames(mat),'SYMBOL']
+df <- as.data.frame(colData(dds)[,c("Genotype","Day")])
+print(pheatmap(mat, annotation_col=df))
+plotMA(res.thr, ylim=c(-9,8))
+```
+
+
+```{r}
+resSort <- res2[order(res2$padj),]
+res_csv<-resSort[which(resSort$padj<0.05),]
+res_csv<-cbind(rowData(dds)[rownames(res_csv),"SYMBOL"], res_csv)
+write.csv(res_csv, "res.csv")
+head(resSort)
+```
+
+Examine the counts for the top gene, sorting by p-value:
+
+```{r}
+#Change of interest can be changed
+library(ggplot2)
+data <- plotCounts(dds, gene=which.min(res$padj), intgroup=c("Genotype","Day"), returnData=TRUE)
+ggplot(data, aes(x=Genotype, y=count, col=Day)) +
+  geom_point(position=position_jitter(width=.1,height=0)) +
+  scale_y_log10()+ggtitle(rowData(dds)[which.min(res$padj),'SYMBOL'])
+```
+
+Connecting by lines shows the differences which are actually being tested by *results* given that our design includes `Day + Genotype`
+
+```{r}
+ggplot(data, aes(x=Genotype, y=count, col=Day, group=Day)) +
+  geom_point() + geom_line() + scale_y_log10() 
+```
+
+A heatmap of the top genes:
+
+```{r}
+library(pheatmap)
+pdf("EA_DE_Heatmaps.pdf")
+mypar(2,1)
+for(i in 1:13){
+topgenes <- rownames(resSort)[((i-1)*20+1):(i*20)]
+mat <- assay(rld)[topgenes,]
+mat <- mat - rowMeans(mat)
+rownames(mat)<-rowData(dds)[rownames(mat),'SYMBOL']
+df <- as.data.frame(colData(dds)[,c("Genotype","Day")])
+print(pheatmap(mat, annotation_col=df))
+}
+dev.off()
+```
+
+
+### Looking up different results tables
+
+The `contrast` argument allows users to specify what results table should be built. See the help and examples in `?results` for more details:
+
+```{r}
+results(dds, contrast=c("Day","1","2"))
+```
+
+### Surrogate variable analysis for RNA-seq
+
+If we suppose that we didn't know about the different Day-lines in the experiment, but noticed some structure in the counts, we could use surrograte variable analysis (SVA) to detect this hidden structure (see PH525x Course 3 for details on the algorithm).
+
+```{r}
+library(sva)
+dat <- counts(dds, normalized=TRUE)
+idx <- rowMeans(dat) > 1
+dat <- dat[idx,]
+mod <- model.matrix(~ Genotype, colData(dds))
+mod0 <- model.matrix(~ 1, colData(dds))
+svseq <- svaseq(dat, mod, mod0, n.sv=4)
+```
+
+Do the surrogate variables capture the Day difference?
+
+```{r}
+plot(svseq$sv[,1], svseq$sv[,2], col=dds$Day, pch=16)
+```
+
+```{r}
+rld.sva <- rlog(dds.sva)
+```
+
+Using the surrogate variables in a *DESeq2* analysis:
+
+```{r}
+dds.sva <- dds
+dds.sva$SV1 <- svseq$sv[,1]
+dds.sva$SV2 <- svseq$sv[,2]
+design(dds.sva) <- ~ SV1 + SV2 + Genotype
+dds$Genotype <- relevel(dds$Genotype, "WT")
+dds.sva <- DESeq(dds.sva)
+```
+```{r}
+res.sva <- results(dds.sva, alpha = 0.05)
+head(res.sva)
+table(res.sva$padj < 0.05)
+table(rownames(res.sva[which(res.sva$padj < 0.05),])%in%rownames(res2[which(res2$padj < 0.05),]))
+```
+
+```{r}
+resSort.sva <- res.sva[order(res.sva$padj),]
+table(rownames(head(resSort.sva),20)%in%rownames(head(resSort),20))
+```
+```{r}
+library(pheatmap)
+pdf("EA_DE_Heatmaps_sva.pdf")
+mypar(2,1)
+for(i in 1:13){
+topgenes <- rownames(resSort.sva)[((i-1)*20+1):(i*20)]
+mat <- assay(rld.sva)[topgenes,]
+mat <- mat - rowMeans(mat)
+rownames(mat)<-rowData(dds)[rownames(mat),'SYMBOL']
+df <- as.data.frame(colData(dds.sva)[,c("Genotype","SV1","SV2")])
+print(pheatmap(mat, annotation_col=df))
+}
+dev.off()
+```
+
+
+
+### Examining results tables
+
+```{r}
+
+```
+
+
+```{r options, echo=FALSE}
+library(knitr)
+opts_chunk$set(fig.path=paste0("figure/", sub("(.*).Rmd","\\1",basename(knitr:::knit_concord$get('infile'))), "-"))
+```
+
+The [DEXSeq](http://bioconductor.org/packages/release/bioc/html/DEXSeq.html) package offers differential testing of exon usage within each gene. Here we will explore the R code used in a *DEXSeq* analysis. We omit the python calls for preparing the annotation and count tables, but these can be found in the vignette at the above link. The python calls are generally along the lines of:
+
+```
+python dexseq_prepare_annotation.py gtffile.gtf dexseq.gff
+python dexseq_count.py dexseq.gff sample1.sam sample1.txt
+```
+
+Once we have repeated the `dexseq_count` script for each sample, we can read the data into R using the code chunks below. As we are working with pre-prepared data, we first point to these files which live within the *pasilla* package. 
+
+The *pasilla* package contains counts from an experiment by [Brooks et al](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC3032923/)
+
+We will run DEXSeq on a subset of the genes, for demonstration purposes.
+
+```{r}
+library("pasilla")
+inDir = system.file("extdata", package="pasilla", mustWork=TRUE)
+countFiles = list.files(inDir, pattern="fb.txt$", full.names=TRUE)
+flattenedFile = list.files(inDir, pattern="gff$", full.names=TRUE)
+genesForSubset = read.table(file.path(inDir, "geneIDsinsubset.txt"),
+  stringsAsFactors=FALSE)[[1]]
+```
+
+As in *DESeq2* we use a `sampleTable` to define the samples:
+
+```{r}
+sampleTable = data.frame(
+  row.names = c( "treated1", "treated2", "treated3",
+    "untreated1", "untreated2", "untreated3", "untreated4" ),
+  condition = c("knockdown", "knockdown", "knockdown",
+    "control", "control", "control", "control" ),
+  libType = c( "single-end", "paired-end", "paired-end",
+    "single-end", "single-end", "paired-end", "paired-end" ) )
+sampleTable
+```
+
+We now read the data into a `DEXSeqDataSet` object:
+
+```{r message=FALSE}
+library("DEXSeq")
+dxd = DEXSeqDataSetFromHTSeq(
+  countFiles,
+  sampleData=sampleTable,
+  design= ~ sample + exon + condition:exon,
+  flattenedfile=flattenedFile )
+```
+
+Subset the genes, for demonstration purposes:
+
+```{r}
+dxd = dxd[geneIDs( dxd ) %in% genesForSubset,]
+```
+
+Now we run the estimation and testing functions:
+
+```{r}
+dxd = estimateSizeFactors( dxd )
+dxd = estimateDispersions( dxd )
+dxd = testForDEU( dxd )
+dxd = estimateExonFoldChanges( dxd, fitExpToVar="condition")
+```
+
+The following code extracts a results table, makes an MA-plot, and draws the expression levels over the exons to highlight differential exon usage:
+
+```{r}
+dxr = DEXSeqResults( dxd )
+plotMA( dxr, cex=0.8 )
+plotDEXSeq( dxr, "FBgn0010909", legend=TRUE, cex.axis=1.2, cex=1.3, lwd=2 )
+```
+
+Again, drawing the expression levels, now showing the annotated transcripts below:
+
+```{r}
+plotDEXSeq( dxr, "FBgn0010909", displayTranscripts=TRUE, legend=TRUE,
+              cex.axis=1.2, cex=1.3, lwd=2 )
+```
+
+For more details on the *DEXSeq* software, see the vignette and the paper, which is linked from the vignette page:
+
+```{r eval=FALSE}
+browseVignettes("DEXSeq")
+```
+
+
+
+Here we show the exploratory plots offered by the [cummeRbund](http://www.bioconductor.org/packages/release/bioc/html/cummeRbund.html) package. These plots require loading in a directory in which results from a [Cufflinks](http://cole-trapnell-lab.github.io/cufflinks/) analysis has been run. Follow the vignette in the above link in order in order to perform a Cufflinks gene- and isoform-level analysis. From the vignette:
+
+> CummeRbund begins by re-organizing output files of a cuffdiff analysis, and storing these data in a local SQLite database. CummeRbund indexes the data to speed up access to specific feature data (genes, isoforms, TSS, CDS, etc.), and preserves the various relationships between these features. 
+```{r message=FALSE}
+library(cummeRbund)
+myDir <- system.file("extdata", package="cummeRbund") 
+gtfFile <- system.file("extdata/chr1_snippet.gtf",package="cummeRbund")
+```
+
+Read in the prepared Cufflinks files from the directory:
+
+```{r warning=FALSE}
+cuff <- readCufflinks(dir=myDir,gtfFile=gtfFile,genome="hg19",rebuild=TRUE)
+```
+
+Boxplots of expression (FPKM) at the gene and isoform level:
+
+```{r}
+csBoxplot(genes(cuff))
+csBoxplot(genes(cuff),replicates=TRUE)
+csBoxplot(isoforms(cuff),replicates=TRUE)
+```
+
+Scatterplot matrix of gene and isoform level expression:
+
+```{r}
+csScatterMatrix(genes(cuff))
+csScatterMatrix(isoforms(cuff))
+```
+
+Sample dendrograms using Jensen-Shannon distances:
+
+```{r}
+csDendro(genes(cuff),replicates=TRUE)
+csDendro(isoforms(cuff),replicates=TRUE)
+```
+
+MA-plot comparing two conditions:
+
+```{r}
+MAplot(genes(cuff),"hESC","Fibroblasts")
+MAplot(isoforms(cuff),"hESC","Fibroblasts")
+```
+
+A "volcano plot" matrix. Each volcano plot is the -log10(p-value) over the log fold change.
+
+```{r}
+csVolcanoMatrix(genes(cuff))
+csVolcanoMatrix(isoforms(cuff))
+```

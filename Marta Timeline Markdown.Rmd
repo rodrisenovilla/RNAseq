@@ -1,0 +1,171 @@
+---
+title: "Microglia Transcriptomic Maturation"
+author: "Rodrigo Senovilla Ganzo"
+date: "10/10/2021"
+output: html_document
+---
+
+#MP Collaboration
+
+```{r library, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(DESeq2)
+library(biomaRt)
+```
+
+## Import Data
+
+```{r import}
+marta.data<-read_xlsx("./GSE79812_Timeline.xlsx", , col_types = c("text", "text", rep("numeric",30)))
+marta.data<-as.data.frame(marta.data)
+head(marta.data)
+```
+
+## Select columns of interest
+
+
+```{r selection, echo=FALSE}
+rownames(marta.data)<-marta.data[,1]
+mg_dev<-marta.data[,c(1,grep("^mic_day", colnames(marta.data)))]
+head(mg_dev)
+```
+
+
+## Pivot Data
+
+
+```{r pivot, echo=FALSE}
+mg_dev_fact<-mg_dev %>% pivot_longer(!Symbol, names_to = "Stage", values_to = "Counts")
+mg_dev_fact<-cbind(mg_dev_fact, mg_dev_fact$Stage)
+colnames(mg_dev_fact)[4]<-"Replicate"
+mg_dev_fact<-mg_dev_fact %>% relocate(Replicate, .after = Stage)
+mg_dev_fact$Stage <- mg_dev_fact$Stage %>% str_sub(5,8) %>% str_replace("day", "P")
+mg_dev_fact$Replicate <- mg_dev_fact$Replicate %>% str_sub(10,10) %>% toupper()
+mg_dev_fact$Stage <- factor(mg_dev_fact$Stage)
+mg_dev_fact$Replicate <- factor(mg_dev_fact$Replicate)
+mg_dev_fact %>% group_by(Symbol, Stage, Counts) %>% filter(Symbol=="C1qa") %>% ggplot(aes(x=Stage, y=Counts))+geom_boxplot(aes(col=Stage))+geom_point()+ggtitle("C1qa")
+```
+
+## DESeq2 Metadata
+
+```{r DESeq2}
+mg_dev_metadata<-data.frame(colnames(mg_dev[-1]), Stage=T, Replicate=T)
+mg_dev_metadata[,"Stage"]<-factor(mg_dev_metadata[,1] %>% str_sub(5,8) %>% str_replace("day", "P"))
+mg_dev_metadata[,"Replicate"]<-factor(mg_dev_metadata[,1] %>% str_sub(10,10) %>% toupper())
+rownames(mg_dev_metadata)<-mg_dev_metadata[,1]
+mg_dev_metadata[,1]<-NULL
+head(mg_dev_metadata)
+cts<-as.matrix(mg_dev[,-1])
+head(cts)
+```
+
+
+#DESseq2 import
+
+```{r DESeq2 generation, echo=F}
+all(rownames(mg_dev_metadata) == colnames(cts))
+dds <- DESeqDataSetFromMatrix(countData = round(cts),
+                              colData = mg_dev_metadata,
+                              design = ~ Stage)
+dds
+```
+
+
+#DESseq2 prefiltering
+
+```{r DESEq2 prefilt, echo=F}
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+```
+
+#DESeq2 Run
+
+```{r DESeq2 run, echo=F}
+dds <- DESeq(dds, test = "LRT", reduced =~1)
+res <- results(dds)
+summary(res)
+head(res)
+```
+
+#DESeq2 Visualization
+
+```{r DESeq2 visualization, echo=F}
+resOrdered <- res[order(res$pvalue),]
+summary(res)
+head(res)
+sum(res$padj < 0.1, na.rm=TRUE)
+res05 <- results(dds, alpha=0.05)
+summary(res05)
+```
+
+```{r, DESEq2 shrink, echo=F}
+resApeT <- lfcShrink(dds, coef=2, type="apeglm", lfcThreshold=1)
+plotMA(resApeT, ylim=c(-4,4), cex=.8)
+abline(h=c(-1,1), col="dodgerblue", lwd=2)
+```
+
+
+
+```{r order, echo=F}
+resSort <- resApeT[order(resApeT$log2FoldChange),]
+head(rownames(resSort))
+```
+
+````{r plotMA labelled, echo=F}
+plotMA(resApeT, ylim=c(-8,8))
+with(subset(resApeT, rownames(resApeT) %in% head(rownames(resSort))), {
+  points(baseMean, log2FoldChange, col = "dodgerblue", cex = 2, lwd = 2)
+  text(baseMean, log2FoldChange, head(rownames(resSort)), pos = 2, col = "dodgerblue")
+})
+```
+
+```{r ensembl go, echo=F}
+ensembl <- useMart("ensembl")
+mouse <- useDataset("mmusculus_gene_ensembl",mart=ensembl)
+attributes = listFilters(mouse)
+attributes$name[grep("GO", attributes$description)]
+GO_names<-getBM(attributes=c('external_gene_name'), filters = "go", values = "GO:0006910", mart = mouse)
+GO_names<-GO_names$external_gene_name
+GO_names
+```
+
+```{r merge GO, echo=F}
+res_phag<-res[rownames(res)%in%c(GO_names,as_genes),]
+summary(res_phag)
+head(res_phag)
+``` 
+```{r order, echo=F}
+resSort_phag <- res_phag[order(res_phag$padj),]
+resSort_phag
+```
+
+```{r pivot DESeq2, echo=FALSE}
+mg_dev_fact<-mg_dev %>% pivot_longer(!Symbol, names_to = "Stage", values_to = "Counts")
+mg_dev_fact<-cbind(mg_dev_fact, mg_dev_fact$Stage)
+colnames(mg_dev_fact)[4]<-"Replicate"
+mg_dev_fact<-mg_dev_fact %>% relocate(Replicate, .after = Stage)
+mg_dev_fact$Stage <- mg_dev_fact$Stage %>% str_sub(5,8) %>% str_replace("day", "P")
+mg_dev_fact$Replicate <- mg_dev_fact$Replicate %>% str_sub(10,10) %>% toupper()
+mg_dev_fact$Stage <- factor(mg_dev_fact$Stage)
+mg_dev_fact$Replicate <- factor(mg_dev_fact$Replicate)
+for(i in 1:length(rownames(res_phag))){
+print(mg_dev_fact %>% group_by(Symbol, Stage, Counts) %>% filter(Symbol==rownames(res_phag)[i]) %>% ggplot(aes(x=Stage, y=Counts))+geom_boxplot(aes(col=Stage))+geom_point()+ggtitle(rownames(res_phag)[i]))}
+```
+
+## Amanda's genes
+
+```{r pivot DESeq2, echo=FALSE}
+mg_dev_fact<-mg_dev %>% pivot_longer(!Symbol, names_to = "Stage", values_to = "Counts")
+mg_dev_fact<-cbind(mg_dev_fact, mg_dev_fact$Stage)
+colnames(mg_dev_fact)[4]<-"Replicate"
+mg_dev_fact<-mg_dev_fact %>% relocate(Replicate, .after = Stage)
+mg_dev_fact$Stage <- mg_dev_fact$Stage %>% str_sub(5,8) %>% str_replace("day", "P")
+mg_dev_fact$Replicate <- mg_dev_fact$Replicate %>% str_sub(10,10) %>% toupper()
+mg_dev_fact$Stage <- factor(mg_dev_fact$Stage)
+mg_dev_fact$Replicate <- factor(mg_dev_fact$Replicate)
+as_genes<-c("Gpr132", "Cx3cr1", "P2ry6", "P2ry12","Bai1", "Timd4", "Stab1", "Stab2", "Sirpa", "Cd300lb", "Trem2", "Mertk","Axl", "Tyro3", "Cd36","Itgam", "Mrc1","Clec7a","Cd22")
+for(i in 1:length(as_genes)){
+print(mg_dev_fact %>% group_by(Symbol, Stage, Counts) %>% filter(Symbol==as_genes[i]) %>% ggplot(aes(x=Stage, y=Counts))+geom_boxplot(aes(col=Stage))+geom_point()+ggtitle(as_genes[i]))}
+```

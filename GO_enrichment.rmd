@@ -1,0 +1,304 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(clusterProfiler)
+library(gprofiler2)
+library(rafalib)
+library(org.Mm.eg.db)
+library(topGO)
+library(enrichR)
+```
+
+
+#Analysis
+```{r}
+r<-read.table("~/EA_RNAseq/DE_genes.txt")
+de_genes<-r$V1
+```
+
+
+
+```{r}
+ggo<-groupGO(de_genes, OrgDb = "org.Mm.eg.db", keyType = "ENSEMBL", ont = "BP", readable = T)
+head(ggo)
+```
+````{r}
+ego3 <- gseGO(geneList     = de_genes,
+              keyType       = 'ENSEMBL',
+              OrgDb        = org.Hs.eg.db,
+              ont          = "CC",
+              minGSSize    = 100,
+              maxGSSize    = 500,
+              pvalueCutoff = 0.05,
+              verbose      = FALSE)
+
+
+```
+
+````{r}
+ego <- enrichGO(gene          = de_genes,
+                OrgDb         = org.Mm.eg.db,
+                keyType       = 'ENSEMBL',
+                ont           = "MF",
+                pAdjustMethod = "fdr",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+head(ego)
+```
+
+```{r}
+mypar(2,1)
+dotplot(ego)
+barplot(ego)
+enrichplot::cnetplot(ego)
+enrichplot::goplot(ego)
+enrichplot::heatplot(ego)
+```
+
+### GO Analysis (gprofiler2)
+
+
+```{r}
+gostres <- gost(query = DE_genes, 
+                organism = "mmusculus", ordered_query = TRUE, 
+                multi_query = FALSE, significant = TRUE, exclude_iea = FALSE, 
+                measure_underrepresentation = FALSE, evcodes = FALSE, 
+                user_threshold = 0.05, correction_method = "fdr", 
+                domain_scope = "annotated", custom_bg = NULL, 
+                numeric_ns = "", sources = NULL, as_short_link = FALSE)
+gostres
+```
+
+#Visualization
+
+```{r}
+gostplot(gostres, capped = TRUE, interactive = T)
+
+p1 <- gostplot(gostres, capped = TRUE, interactive = F)
+gostres_table<-gostres$result[,c("term_name", "term_id", "source", "p_value", "term_size", "query_size")] %>% arrange(p_value) 
+write.csv(gostres_table, "gprofiler2.csv")
+```
+
+#clusterProfiler 
+
+```{r}
+ggo<-groupGO(de_genes, OrgDb = "org.Mm.eg.db", keyType = "ENSEMBL", ont = "CC", level = 3, readable = T)
+ggo
+```
+```{r}
+mypar(2,1)
+dotplot(ggo)
+barplot(ggo)
+enrichplot::cnetplot(ggo)
+enrichplot::goplot(ggo)
+enrichplot::heatplot(ggo)
+```
+
+````{r}
+ego <- enrichGO(gene          = de_genes,
+                OrgDb         = org.Mm.eg.db,
+                keyType = "ENSEMBL",
+                ont           = "MF",
+                pAdjustMethod = "fdr",
+                pvalueCutoff  = 0.05,
+        readable      = TRUE)
+head(ego_2)
+```
+````{r}
+dgo <- enrichDAVID(gene          = de_genes,
+                species = "Mus musculus",
+                idType = "ENSEMBL_GENE_ID",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05)
+head(ego)
+```
+
+```{r}
+mypar(2,1)
+dotplot(ego)
+barplot(ego)
+enrichplot::cnetplot(ego)
+enrichplot::goplot(ego)
+enrichplot::heatplot(ego)
+```
+
+```{r}
+DAVID <- read.table('~/EA_RNAseq/DAVID_functional_annotation_chart.txt',  sep = '\t', header = TRUE, stringsAsFactors = FALSE)
+colnames(DAVID)
+head(DAVID)
+```
+
+# subset the DAVID results for the top enrichments
+
+```{r}
+DAVIDsubset <- subset(DAVID, Benjamini <= 0.001)
+DAVIDsubset <- DAVIDsubset[,c(1,2,3,6)]
+```
+
+For this tutorial, let's further filter these for just the enriched KEGG pathways
+
+```{r}
+DAVIDsubset <- DAVIDsubset[grep('^hsa', DAVIDsubset$Term),]
+```
+
+5, create a new data-frame that has '1' for when a gene is part of a term, and '0' when not
+
+```{r}
+annGSEA <- data.frame(row.names = de_genes)
+for (j in 1:length(de_genes)) {
+  # create a matching pattern to ensure genes match exactly
+    #  '^GENE,'  --> Match at beginning of matching string
+    #  ', GENE$'  --> Match at end of matching string
+    #  'GENE,'  --> Match between first and last gene in matching string
+  gene <- de_genes[j]
+  pattern <- paste('^', gene, ', |, ', gene, '$| ', gene, ',', sep = '')
+  for (k in 1:nrow(DAVIDsubset)) {
+    if (any(grepl(pattern, DAVIDsubset$Genes[k]))) {
+      annGSEA[j,k] <- 1
+    } else {
+      annGSEA[j,k] <- 0
+    }
+  }
+}
+colnames(annGSEA) <- DAVIDsubset[,2]
+```
+
+# remove terms with no overlapping genes
+```{r}
+annGSEA <- annGSEA[,apply(annGSEA, 2, mean)!=0]
+```
+
+# remove genes with no overlapping terms
+```{r}
+annGSEA <- annGSEA[apply(annGSEA, 1, mean)!=0,]
+annGSEA[1:5,1:5]
+```
+
+6, match the order of rownames in toptable with that of annGSEA
+
+```{r}
+topTableAligned <- topTable[which(rownames(topTable) %in% rownames(annGSEA)),]
+topTableAligned <- topTableAligned[match(rownames(annGSEA), rownames(topTableAligned)),]
+all(rownames(topTableAligned) == rownames(annGSEA))
+```
+
+
+7, create heatmap annotations
+
+```{r}
+require(ComplexHeatmap)
+require(circlize)
+```
+
+First, let's create the annotation for the genes, which will comprise:
+
+    colour bar representing -log10(adjusted p-value) for each gene from differential expression analysis
+    as above but for log2 fold-change
+
+# colour bar for -log10(adjusted p-value) for sigGenes
+
+```{r}
+dfMinusLog10FDRGenes <- data.frame(-log10(
+  topTableAligned[which(rownames(topTableAligned) %in% rownames(annGSEA)), 'padj']))
+dfMinusLog10FDRGenes[dfMinusLog10FDRGenes == 'Inf'] <- 0
+```
+
+
+# colour bar for fold changes for sigGenes
+```{r}
+dfFoldChangeGenes <- data.frame(
+  topTableAligned[which(rownames(topTableAligned) %in% rownames(annGSEA)), 'log2FoldChange'])
+```
+
+
+# merge both
+```{r}
+dfGeneAnno <- data.frame(dfMinusLog10FDRGenes, dfFoldChangeGenes)
+colnames(dfGeneAnno) <- c('Gene score', 'Log2FC')
+dfGeneAnno[,2] <- ifelse(dfGeneAnno$Log2FC > 0, 'Up-regulated',
+  ifelse(dfGeneAnno$Log2FC < 0, 'Down-regulated', 'Unchanged'))
+colours <- list(
+  'Log2FC' = c('Up-regulated' = 'royalblue', 'Down-regulated' = 'yellow'))
+haGenes <- rowAnnotation(
+  df = dfGeneAnno,
+  col = colours,
+  width = unit(1,'cm'),
+  annotation_name_side = 'top')
+```
+
+Now a separate colour bar for the DAVID enrichment Benjamini p-value. This will also contain the enriched term names via annot_text()
+
+# colour bar for -log10(Benjamini enrichment Q value) for DAVID results
+```{r}
+dfMinusLog10BenjaminiTerms <- data.frame(-log10(
+  DAVID[which(DAVID$Term %in% colnames(annGSEA)), 'Benjamini']))
+colnames(dfMinusLog10BenjaminiTerms) <- 'Enrichment\nterm score'
+haTerms <- HeatmapAnnotation(
+  df = dfMinusLog10BenjaminiTerms,
+  Term = anno_text(
+    colnames(annGSEA),
+    rot = 45,
+    just = 'right',
+    gp = gpar(fontsize = 12)),
+  annotation_height = unit.c(unit(1, 'cm'), unit(8, 'cm')),
+  annotation_name_side = 'left')
+```
+
+8, now generate the heatmap
+```{r}
+hmapGSEA <- Heatmap(annGSEA,
+  name = 'DAVID GO enrichment',
+  split = dfGeneAnno[,2],
+
+  col = c('0' = 'white', '1' = 'forestgreen'),
+
+  rect_gp = gpar(col = 'grey85'),
+
+  cluster_rows = TRUE,
+  show_row_dend = TRUE,
+  row_title = 'Top Genes',
+  row_title_side = 'left',
+  row_title_gp = gpar(fontsize = 11, fontface = 'bold'),
+  row_title_rot = 90,
+  show_row_names = TRUE,
+  row_names_gp = gpar(fontsize = 11, fontface = 'bold'),
+  row_names_side = 'left',
+  row_dend_width = unit(35, 'mm'),
+
+  cluster_columns = TRUE,
+  show_column_dend = TRUE,
+  column_title = 'Enriched terms',
+  column_title_side = 'top',
+  column_title_gp = gpar(fontsize = 12, fontface = 'bold'),
+  column_title_rot = 0,
+  show_column_names = FALSE,
+
+  show_heatmap_legend = FALSE,
+
+  clustering_distance_columns = 'euclidean',
+  clustering_method_columns = 'ward.D2',
+  clustering_distance_rows = 'euclidean',
+  clustering_method_rows = 'ward.D2',
+
+  bottom_annotation = haTerms)
+
+draw(hmapGSEA + haGenes,
+  heatmap_legend_side = 'right',
+  annotation_legend_side = 'right')
+```
+
+##TopGO
+
+```{r}
+library(biomaRt)
+ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+res<-getBM(attributes = "GO", filters = "")
+GOdata<-new("topGOdata", ontology="MF", allGenes= de_genes, annot=annFUND)
+
+resultKS <- runTest(GOdata, algorithm = "classic", statistic = "ks")
+```
