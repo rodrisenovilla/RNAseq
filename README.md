@@ -6,6 +6,6 @@ This branch is compilation of the code (most R) used for different RNAseq analys
 
 ### Support or Contact
 
-If you have any doubt of what we do, check out our page [phylobrain](http://phylobrain.com/) or our social media @PhyloBrain or @RodriSenovilla in Twitter. 
+If you have any doubt of what we do, check out our page [phylobrain](http://phylobrain.com/) or our social media [@PhyloBrain](https://twitter.com/PhyloBrain) or [@RodriSenovilla](https://twitter.com/RodriSenovilla) in Twitter. 
 
 [![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)](http://phylobrain.com/)
