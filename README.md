@@ -12,4 +12,4 @@ Markdown is a lightweight and easy-to-use syntax for styling your writing. It in
 
 If you have any doubt of what we do, check out our page [phylobrain](http://phylobrain.com/) or our social media @PhyloBrain or @RodriSenovilla in Twitter. 
 
-![Logo](https://www.google.com/url?sa=i&url=http%3A%2F%2Fwww.phylobrain.com%2F&psig=AOvVaw1DKzeD-bR13vlvpbGGwoyO&ust=1637139876245000&source=images&cd=vfe&ved=0CAsQjRxqFwoTCPCauLjDnPQCFQAAAAAdAAAAABAD)
+![Logo](https://github.com/rodrisenovilla/phylobrain/blob/main/unnamed.png?raw=true)
