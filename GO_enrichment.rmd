@@ -1,7 +1,10 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "EA GO Enrichment"
+output: EA GO Enrichment
 ---
+#EA Collaboration 
+
+Code extracted and modified from different functional enrichment vignettes
 
 ```{r}
 library(clusterProfiler)
