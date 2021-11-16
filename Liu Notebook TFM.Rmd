@@ -126,6 +126,8 @@ df$Tipo.celular<-factor(  c(
   levels=c("SGN", "Glia", "HC"))
 df
 ```
+#Visualization
+
 ```{r}
 library(dplyr)
 library(ggplot2)
