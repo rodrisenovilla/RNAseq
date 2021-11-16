@@ -1,6 +1,6 @@
 ---
-layout: page
-title: RNA-seq gene-level analysis
+layout: 'EA Exploratory DE'
+title: 'RNA-seq gene-level analysis'
 ---
 
 ```{r options, echo=FALSE}
