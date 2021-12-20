@@ -2,7 +2,7 @@
 
 # **RNAseq Analysis** 
 
-This branch is compilation of the code (most R) used for different RNAseq analysis, most of it originally learned at HarvardX with Michael Love (DESeq2 developer).
+This branch is compilation of the code (most R) used for different RNAseq analysis, most of it originally from HarvardX / Michael Love (DESeq2 developer).
 
 ### Support or Contact
 
